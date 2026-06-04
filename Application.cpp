@@ -1,8 +1,5 @@
 #include "Application.hpp"
 
-namespace {
-}
-
 void    Application::run() {
     this->initWindow();
     this->initVulkan();
@@ -98,6 +95,22 @@ void    Application::createInstance() {
     this->_instance = vk::raii::Instance(this->_context, createInfo);
 }
 
+/*
+* Creation of an abstract surface for rendering
+*/
+void    Application::createSurface() {
+    VkSurfaceKHR    surface;
+
+    if (glfwCreateWindowSurface(*this->_instance, this->_window, nullptr, &surface) != 0) {
+        throw std::runtime_error("Failed to create window surface");
+    }
+
+    this->_surface = vk::raii::SurfaceKHR(this->_instance, surface);
+}
+
+/*
+* Setup the Debug Messenger
+*/
 void    Application::setupDebugMessenger() {
     if (!enableValidationLayers) {
         return ;
@@ -116,6 +129,9 @@ void    Application::setupDebugMessenger() {
     this->_debugMessenger = this->_instance.createDebugUtilsMessengerEXT(debugUtilsMessegerCreateInfoEXT);
 }
 
+/*
+* Check all GPU on the machine
+*/
 void    Application::pickPhysicalDevice() {
     auto                                            physicalDevices = this->_instance.enumeratePhysicalDevices();
     std::multimap<int, vk::raii::PhysicalDevice>    candidates;
@@ -149,46 +165,93 @@ void    Application::pickPhysicalDevice() {
         throw std::runtime_error("Failed to find a correct GPU");
     }
 
+    for (const auto& candidate: candidates) {
+        std::cout << "candidate: " << candidate.second.getProperties().deviceName << " score: " << candidate.first << std::endl;
+    }
+
     this->_physicalDevice = candidates.rbegin()->second;
 
     std::cout << "GPU chosen: " << this->_physicalDevice.getProperties().deviceName << std::endl;
 }
 
+/*
+* Select GPU and create a queue for it
+*/
 void    Application::createLogicalDevice() {
-    std::vector<vk::QueueFamilyProperties>  queueFamilyProperties = this->_physicalDevice.getQueueFamilyProperties();
-    auto                                    graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties, [](auto const &qfp) { return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0); });
-    auto                                    graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
-    float                                   queuePriority = 0.5f;
+	std::vector<vk::QueueFamilyProperties> queueFamilyProperties = this->_physicalDevice.getQueueFamilyProperties();
 
-    vk::DeviceQueueCreateInfo               deviceQueueCreateInfo { .queueFamilyIndex = graphicsIndex,
-                                                                    .queueCount = 1,
-                                                                    .pQueuePriorities = &queuePriority};
+	// get the first index into queueFamilyProperties which supports both graphics and present
+	uint32_t queueIndex = ~0;
+	for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++)
+    {
+		if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+		    this->_physicalDevice.getSurfaceSupportKHR(qfpIndex, *this->_surface))
+		{
+			// found a queue family that supports both graphics and present
+			queueIndex = qfpIndex;
+			break;
+		}
+	}
 
-    // Create a chain of feature structures
-    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain = {
-        {},                               // vk::PhysicalDeviceFeatures2 (empty for now)
-        {.dynamicRendering = true },      // Enable dynamic rendering from Vulkan 1.3
-        {.extendedDynamicState = true }   // Enable extended dynamic state from the extension
-    };
+	if (static_cast<int>(queueIndex) == ~0) {
+		throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+	}
+	// query for Vulkan 1.3 features
+	vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain = {
+	    {},                                   // vk::PhysicalDeviceFeatures2
+	    {.dynamicRendering = true},           // vk::PhysicalDeviceVulkan13Features
+	    {.extendedDynamicState = true}        // vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+	};
+	// create a Device
+	float                     queuePriority = 0.5f;
+	vk::DeviceQueueCreateInfo deviceQueueCreateInfo{.queueFamilyIndex = queueIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
+	vk::DeviceCreateInfo      deviceCreateInfo{.pNext                   = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
+	                                           .queueCreateInfoCount    = 1,
+	                                           .pQueueCreateInfos       = &deviceQueueCreateInfo,
+	                                           .enabledExtensionCount   = static_cast<uint32_t>(this->_requiredDeviceExtension.size()),
+	                                           .ppEnabledExtensionNames = this->_requiredDeviceExtension.data()};
 
-    vk::DeviceCreateInfo deviceCreateInfo{
-        .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
-        .queueCreateInfoCount = 1,
-        .pQueueCreateInfos = &deviceQueueCreateInfo,
-        .enabledExtensionCount = static_cast<uint32_t>(this->_requiredDeviceExtension.size()),
-        .ppEnabledExtensionNames = this->_requiredDeviceExtension.data()
-    };
+	this->_logicalDevice = vk::raii::Device(this->_physicalDevice, deviceCreateInfo);
+	this->_graphicsQueue  = vk::raii::Queue(this->_logicalDevice, queueIndex, 0);
+}
 
-    this->_logicalDevice = vk::raii::Device(this->_physicalDevice, deviceCreateInfo);
+/*
+* SwapChain creation
+*/
+void    Application::createSwapChain()
+{
+    vk::SurfaceCapabilitiesKHR surfaceCapabilities          = this->_physicalDevice.getSurfaceCapabilitiesKHR(*this->_surface);
+	this->_swapChainExtent                                  = chooseSwapExtent(surfaceCapabilities);
+	uint32_t minImageCount                                  = chooseSwapMinImageCount(surfaceCapabilities);
+	std::vector<vk::SurfaceFormatKHR> availableFormats      = this->_physicalDevice.getSurfaceFormatsKHR(*this->_surface);
+	this->_swapChainSurfaceFormat                           = chooseSwapSurfaceFormat(availableFormats);
+	std::vector<vk::PresentModeKHR> availablePresentModes   = this->_physicalDevice.getSurfacePresentModesKHR(*this->_surface);
+	vk::PresentModeKHR              presentMode             = chooseSwapPresentMode(availablePresentModes);
 
-    this->_graphicsQueue = vk::raii::Queue(this->_logicalDevice, graphicsIndex, 0);
+	vk::SwapchainCreateInfoKHR swapChainCreateInfo{.surface          = *this->_surface,
+	                                               .minImageCount    = minImageCount,
+	                                               .imageFormat      = this->_swapChainSurfaceFormat.format,
+	                                               .imageColorSpace  = this->_swapChainSurfaceFormat.colorSpace,
+	                                               .imageExtent      = this->_swapChainExtent,
+	                                               .imageArrayLayers = 1,
+	                                               .imageUsage       = vk::ImageUsageFlagBits::eColorAttachment,
+	                                               .imageSharingMode = vk::SharingMode::eExclusive,
+	                                               .preTransform     = surfaceCapabilities.currentTransform,
+	                                               .compositeAlpha   = vk::CompositeAlphaFlagBitsKHR::eOpaque,
+	                                               .presentMode      = presentMode,
+	                                               .clipped          = true};
+
+	this->_swapChain       = vk::raii::SwapchainKHR(this->_logicalDevice, swapChainCreateInfo);
+	this->_swapChainImages = this->_swapChain.getImages();
 }
 
 void    Application::initVulkan() {
     this->createInstance();
     this->setupDebugMessenger();
+    this->createSurface();
     this->pickPhysicalDevice();
     this->createLogicalDevice();
+    this->createSwapChain();
 }
 
 void    Application::mainLoop() {
@@ -249,7 +312,7 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL Application::debugCallback(vk::DebugUtilsMessag
 
     std::cerr << "validation layer: type " << to_string(type) << " msg: " << pCallbackData->pMessage << std::endl;
 
-    return (vk::False);
+    return (VK_FALSE);
 }
 
 bool Application::isDeviceSuitable( vk::raii::PhysicalDevice const & physicalDevice ) {
@@ -280,4 +343,50 @@ bool Application::isDeviceSuitable( vk::raii::PhysicalDevice const & physicalDev
 
   // Return true if the physicalDevice meets all the criteria
   return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
+}
+
+vk::SurfaceFormatKHR Application::chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& availableFormats)
+{
+    const auto formatIt = std::ranges::find_if(
+        availableFormats,
+        [](const auto &format) { return format.format == vk::Format::eB8G8R8A8Srgb && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear; });
+
+    return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
+}
+
+uint32_t            Application::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &surfaceCapabilities)
+{
+    auto    minImageCount = std::max(3u, surfaceCapabilities.minImageCount);
+    
+    if ((0 < surfaceCapabilities.maxImageCount) && (surfaceCapabilities.maxImageCount < minImageCount)) 
+    {
+        minImageCount = surfaceCapabilities.maxImageCount;
+    }
+
+    return minImageCount;
+}
+
+vk::PresentModeKHR  Application::chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const &availablePresentModes)
+{
+	assert(std::ranges::any_of(availablePresentModes, [](auto presentMode) { return presentMode == vk::PresentModeKHR::eFifo; }));
+
+	return std::ranges::any_of(availablePresentModes,
+	                           [](const vk::PresentModeKHR value) { return vk::PresentModeKHR::eMailbox == value; }) ?
+	           vk::PresentModeKHR::eMailbox :
+	           vk::PresentModeKHR::eFifo;
+}
+
+vk::Extent2D        Application::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities)
+{
+	if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+	{
+		return capabilities.currentExtent;
+	}
+
+	int width, height;
+	glfwGetFramebufferSize(this->_window, &width, &height);
+
+	return {
+	    std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+	    std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)};
 }
