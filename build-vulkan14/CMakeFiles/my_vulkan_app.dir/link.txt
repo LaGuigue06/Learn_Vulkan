@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/my_vulkan_app.dir/main.cpp.o CMakeFiles/my_vulkan_app.dir/Application.cpp.o -o my_vulkan_app  -Wl,-rpath,/home/gurousta/vulkan/1.4.350.1/x86_64/lib/VulkanLoader/lib /home/gurousta/vulkan/1.4.350.1/x86_64/lib/VulkanLoader/lib/libvulkan.so.1.4.350 external/glfw/src/libglfw3.a external/fmt/libfmt.a /usr/lib/x86_64-linux-gnu/librt.a -lm -ldl 
