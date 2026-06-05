@@ -1,4 +1,5 @@
 /home/gurousta/Documents/Learn_Vulkan/build-vulkan14/CMakeFiles/my_vulkan_app.dir
+/home/gurousta/Documents/Learn_Vulkan/build-vulkan14/CMakeFiles/compile_slang_shaders.dir
 /home/gurousta/Documents/Learn_Vulkan/build-vulkan14/CMakeFiles/edit_cache.dir
 /home/gurousta/Documents/Learn_Vulkan/build-vulkan14/CMakeFiles/rebuild_cache.dir
 /home/gurousta/Documents/Learn_Vulkan/build-vulkan14/external/glfw/CMakeFiles/edit_cache.dir

@@ -181,38 +181,43 @@ void    Application::createLogicalDevice() {
 	std::vector<vk::QueueFamilyProperties> queueFamilyProperties = this->_physicalDevice.getQueueFamilyProperties();
 
 	// get the first index into queueFamilyProperties which supports both graphics and present
-	uint32_t queueIndex = ~0;
 	for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++)
     {
 		if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
 		    this->_physicalDevice.getSurfaceSupportKHR(qfpIndex, *this->_surface))
 		{
 			// found a queue family that supports both graphics and present
-			queueIndex = qfpIndex;
+			this->_queueIndex = qfpIndex;
 			break;
 		}
 	}
 
-	if (static_cast<int>(queueIndex) == ~0) {
+	if (static_cast<int>(this->_queueIndex) == ~0) {
 		throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
 	}
+
 	// query for Vulkan 1.3 features
-	vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain = {
+	vk::StructureChain<vk::PhysicalDeviceFeatures2,
+                       vk::PhysicalDeviceVulkan13Features,
+                       vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
+                       vk::PhysicalDeviceVulkan11Features> featureChain = {
 	    {},                                   // vk::PhysicalDeviceFeatures2
 	    {.dynamicRendering = true},           // vk::PhysicalDeviceVulkan13Features
-	    {.extendedDynamicState = true}        // vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+	    {.extendedDynamicState = true},       // vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+        {.shaderDrawParameters = true}        // vk::PhysicalDeviceVulkan11Features
 	};
+
 	// create a Device
 	float                     queuePriority = 0.5f;
-	vk::DeviceQueueCreateInfo deviceQueueCreateInfo{.queueFamilyIndex = queueIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
+	vk::DeviceQueueCreateInfo deviceQueueCreateInfo{.queueFamilyIndex = this->_queueIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
 	vk::DeviceCreateInfo      deviceCreateInfo{.pNext                   = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
 	                                           .queueCreateInfoCount    = 1,
 	                                           .pQueueCreateInfos       = &deviceQueueCreateInfo,
-	                                           .enabledExtensionCount   = static_cast<uint32_t>(this->_requiredDeviceExtension.size()),
-	                                           .ppEnabledExtensionNames = this->_requiredDeviceExtension.data()};
+	                                           .enabledExtensionCount   = static_cast<uint32_t>(this->_requiredDeviceExtension.size()), // To enable extension for SwapChain 
+	                                           .ppEnabledExtensionNames = this->_requiredDeviceExtension.data()}; // To enable extension for SwapChain
 
 	this->_logicalDevice = vk::raii::Device(this->_physicalDevice, deviceCreateInfo);
-	this->_graphicsQueue  = vk::raii::Queue(this->_logicalDevice, queueIndex, 0);
+	this->_graphicsQueue  = vk::raii::Queue(this->_logicalDevice, this->_queueIndex, 0);
 }
 
 /*
@@ -220,12 +225,12 @@ void    Application::createLogicalDevice() {
 */
 void    Application::createSwapChain()
 {
-    vk::SurfaceCapabilitiesKHR surfaceCapabilities          = this->_physicalDevice.getSurfaceCapabilitiesKHR(*this->_surface);
+    vk::SurfaceCapabilitiesKHR surfaceCapabilities          = this->_physicalDevice.getSurfaceCapabilitiesKHR(*this->_surface); // To check if GLFW surface capacity is compatible with the SwapChain
 	this->_swapChainExtent                                  = chooseSwapExtent(surfaceCapabilities);
 	uint32_t minImageCount                                  = chooseSwapMinImageCount(surfaceCapabilities);
-	std::vector<vk::SurfaceFormatKHR> availableFormats      = this->_physicalDevice.getSurfaceFormatsKHR(*this->_surface);
+	std::vector<vk::SurfaceFormatKHR> availableFormats      = this->_physicalDevice.getSurfaceFormatsKHR(*this->_surface); // To check if GLFW surface format is compatible with the SwapChain
 	this->_swapChainSurfaceFormat                           = chooseSwapSurfaceFormat(availableFormats);
-	std::vector<vk::PresentModeKHR> availablePresentModes   = this->_physicalDevice.getSurfacePresentModesKHR(*this->_surface);
+	std::vector<vk::PresentModeKHR> availablePresentModes   = this->_physicalDevice.getSurfacePresentModesKHR(*this->_surface); // Tocheck if GLFW surface Present mode is compatible with the SwapChain
 	vk::PresentModeKHR              presentMode             = chooseSwapPresentMode(availablePresentModes);
 
 	vk::SwapchainCreateInfoKHR swapChainCreateInfo{.surface          = *this->_surface,
@@ -245,6 +250,122 @@ void    Application::createSwapChain()
 	this->_swapChainImages = this->_swapChain.getImages();
 }
 
+void    Application::createImageViews()
+{
+    assert(this->_swapChainImageViews.empty());
+
+    vk::ImageViewCreateInfo imageViewsCreateInfo {  .viewType           = vk::ImageViewType::e2D,
+                                                    .format             = this->_swapChainSurfaceFormat.format,
+                                                    .subresourceRange   = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+
+    for (auto& image: this->_swapChainImages)
+    {
+        imageViewsCreateInfo.image = image;
+        this->_swapChainImageViews.emplace_back(this->_logicalDevice, imageViewsCreateInfo);
+    }
+}
+
+void    Application::createGraphicsPipeline()
+{
+    vk::raii::ShaderModule shaderModule = createShaderModule(readFile("shaders/slang.spv"));
+
+    // Shader step usage
+    vk::PipelineShaderStageCreateInfo vertShaderStageInfo{
+        .stage = vk::ShaderStageFlagBits::eVertex,  // Execute it as a vertex shader
+        .module = shaderModule,                     // module that regroup this shader
+        .pName = "vertMain"                         // Take the function "vertMain"
+    };
+
+    vk::PipelineShaderStageCreateInfo fragShaderStageInfo{
+        .stage = vk::ShaderStageFlagBits::eFragment,    // Execute it as a fragment shader
+        .module = shaderModule,                         // module that regroup this shader
+        .pName = "fragMain"                             // Take the function "fragMain"
+    };
+
+    // Tell how to use the shader
+    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+    // Describe the format of the vertex data that will be passed to the vertex shader  
+    vk::PipelineVertexInputStateCreateInfo  vertexInputInfo;
+    
+    // Describe what kind of geometry will be drawn from the vertices and if primitive should be enable
+    vk::PipelineInputAssemblyStateCreateInfo    inputAssembly{.topology = vk::PrimitiveTopology::eTriangleList};
+
+    /*
+    * The viewport describe the region of the framebuffer that the output will be rendered to almost always (0, 0) to (width, heigh)
+    * The scissor define which map pixel have the right to be shown
+    */ 
+    vk::PipelineViewportStateCreateInfo         viewportState{.viewportCount = 1, .scissorCount = 1};
+
+    // The rasterizer take the geometry and transform it into fragment that will be after colored by the frag shader
+    vk::PipelineRasterizationStateCreateInfo    rasterizer{ .depthClampEnable        = VK_FALSE,                     
+		                                                    .rasterizerDiscardEnable = VK_FALSE,
+		                                                    .polygonMode             = vk::PolygonMode::eFill,
+		                                                    .cullMode                = vk::CullModeFlagBits::eBack, 
+		                                                    .frontFace               = vk::FrontFace::eClockwise,
+		                                                    .depthBiasEnable         = VK_FALSE,
+		                                                    .lineWidth               = 1.0f};
+    
+    // Multisampling to perform antialiasing
+    vk::PipelineMultisampleStateCreateInfo      multisampling{  .rasterizationSamples = vk::SampleCountFlagBits::e1,
+                                                                .sampleShadingEnable = VK_FALSE};
+
+    // color blending from the color of the framebuffer and the color of the fragment shader
+    vk::PipelineColorBlendAttachmentState colorBlendAttachment{
+        .blendEnable    = VK_FALSE,
+		.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA};
+
+    vk::PipelineColorBlendStateCreateInfo colorBlending{    .logicOpEnable = VK_FALSE,
+                                                            .logicOp = vk::LogicOp::eCopy,
+                                                            .attachmentCount = 1,
+                                                            .pAttachments = &colorBlendAttachment};
+
+    // This tell the pipeline that the viewport and scissor are dynamic 
+    std::vector<vk::DynamicState> dynamicStates = {
+        vk::DynamicState::eViewport,
+        vk::DynamicState::eScissor
+    };
+
+    vk::PipelineDynamicStateCreateInfo dynamicState{
+        .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+        .pDynamicStates = dynamicStates.data()
+    };
+
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{.setLayoutCount = 0, .pushConstantRangeCount = 0};
+	this->_pipelineLayout = vk::raii::PipelineLayout(this->_logicalDevice, pipelineLayoutInfo);
+
+    vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfoChain = {
+		{.stageCount          = 2,
+		 .pStages             = shaderStages,
+		 .pVertexInputState   = &vertexInputInfo,
+		 .pInputAssemblyState = &inputAssembly,
+		 .pViewportState      = &viewportState,
+		 .pRasterizationState = &rasterizer,
+		 .pMultisampleState   = &multisampling,
+		 .pColorBlendState    = &colorBlending,
+		 .pDynamicState       = &dynamicState,
+		 .layout              = this->_pipelineLayout,
+		 .renderPass          = nullptr},
+		{.colorAttachmentCount = 1, .pColorAttachmentFormats = &this->_swapChainSurfaceFormat.format}};
+
+	this->_graphicsPipeline = vk::raii::Pipeline(this->_logicalDevice, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+}
+
+void    Application::createCommandPool()
+{
+    vk::CommandPoolCreateInfo poolInfo{.flags            = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+                                       .queueFamilyIndex = this->_queueIndex};
+
+    this->_commandPool = vk::raii::CommandPool(this->_logicalDevice, poolInfo);
+}
+
+void    Application::createCommandBuffer()
+{
+    vk::CommandBufferAllocateInfo allocInfo{ .commandPool = this->_commandPool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = 1 };
+
+    this->_commandBuffer = std::move(vk::raii::CommandBuffers(this->_logicalDevice, allocInfo).front());
+}
+
 void    Application::initVulkan() {
     this->createInstance();
     this->setupDebugMessenger();
@@ -252,6 +373,9 @@ void    Application::initVulkan() {
     this->pickPhysicalDevice();
     this->createLogicalDevice();
     this->createSwapChain();
+    this->createImageViews();
+    this->createGraphicsPipeline();
+    this->createCommandPool();
 }
 
 void    Application::mainLoop() {
@@ -389,4 +513,37 @@ vk::Extent2D        Application::chooseSwapExtent(vk::SurfaceCapabilitiesKHR con
 	return {
 	    std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
 	    std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)};
+}
+
+std::vector<char>   Application::readFile(const std::string& filename)
+{
+    /*
+    * ate start the reading at the end of the file
+    * binary read the file as a binary file
+    */ 
+    std::ifstream   file(filename, std::ios::ate | std::ios::binary);
+
+    if (!file.is_open())
+    {
+        throw std::runtime_error("Failed to open file");
+    }
+
+    std::vector<char>   buffer(file.tellg());
+
+    file.seekg(0, std::ios::beg);
+    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+
+    file.close();
+
+    return(buffer);
+}
+
+[[nodiscard]] vk::raii::ShaderModule    Application::createShaderModule(const std::vector<char>& code) const
+{
+    vk::ShaderModuleCreateInfo createInfo{  .codeSize = code.size() * sizeof(char),
+                                            .pCode = reinterpret_cast<const uint32_t*>(code.data())};
+
+    vk::raii::ShaderModule      shaderModule{this->_logicalDevice, createInfo};
+
+    return (shaderModule);
 }

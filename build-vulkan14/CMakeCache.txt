@@ -390,6 +390,9 @@ PKG_CONFIG_EXECUTABLE:FILEPATH=/usr/bin/pkg-config
 //Path to a library.
 RT_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/librt.a
 
+//Slang shader compiler
+SLANGC_EXECUTABLE:FILEPATH=/home/gurousta/vulkan/1.4.350.1/x86_64/bin/slangc
+
 //Path to a program.
 Vulkan_GLSLANG_VALIDATOR_EXECUTABLE:FILEPATH=/home/gurousta/vulkan/1.4.350.1/x86_64/bin/glslangValidator
 

@@ -314,7 +314,13 @@ CMakeFiles/my_vulkan_app.dir/Application.cpp.o: ../Application.cpp \
   /usr/include/c++/12/bits/node_handle.h \
   /usr/include/c++/12/bits/stl_map.h \
   /usr/include/c++/12/bits/stl_multimap.h \
-  /usr/include/c++/12/bits/erase_if.h
+  /usr/include/c++/12/bits/erase_if.h \
+  /usr/include/c++/12/limits \
+  /usr/include/c++/12/fstream \
+  /usr/include/c++/12/bits/codecvt.h \
+  /usr/include/x86_64-linux-gnu/c++/12/bits/basic_file.h \
+  /usr/include/x86_64-linux-gnu/c++/12/bits/c++io.h \
+  /usr/include/c++/12/bits/fstream.tcc
 
 CMakeFiles/my_vulkan_app.dir/main.cpp.o: ../main.cpp \
   ../Application.hpp \
@@ -629,10 +635,24 @@ CMakeFiles/my_vulkan_app.dir/main.cpp.o: ../main.cpp \
   /usr/include/c++/12/bits/node_handle.h \
   /usr/include/c++/12/bits/stl_map.h \
   /usr/include/c++/12/bits/stl_multimap.h \
-  /usr/include/c++/12/bits/erase_if.h
+  /usr/include/c++/12/bits/erase_if.h \
+  /usr/include/c++/12/limits \
+  /usr/include/c++/12/fstream \
+  /usr/include/c++/12/bits/codecvt.h \
+  /usr/include/x86_64-linux-gnu/c++/12/bits/basic_file.h \
+  /usr/include/x86_64-linux-gnu/c++/12/bits/c++io.h \
+  /usr/include/c++/12/bits/fstream.tcc
 
 
 ../main.cpp:
+
+/usr/include/c++/12/bits/fstream.tcc:
+
+/usr/include/x86_64-linux-gnu/c++/12/bits/c++io.h:
+
+/usr/include/c++/12/fstream:
+
+/usr/include/c++/12/limits:
 
 /usr/include/c++/12/bits/erase_if.h:
 
@@ -830,6 +850,8 @@ CMakeFiles/my_vulkan_app.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/types.h:
 
+/usr/include/c++/12/bits/codecvt.h:
+
 /usr/include/c++/12/bits/cpp_type_traits.h:
 
 /usr/include/x86_64-linux-gnu/bits/wordsize.h:
@@ -871,6 +893,8 @@ CMakeFiles/my_vulkan_app.dir/main.cpp.o: ../main.cpp \
 /usr/include/c++/12/bits/move.h:
 
 /usr/include/c++/12/utility:
+
+/usr/include/x86_64-linux-gnu/c++/12/bits/basic_file.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h:
 

@@ -51,6 +51,73 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Vulkan REQUIRED)
 
+find_program(SLANGC_EXECUTABLE
+    NAMES slangc slangc.exe
+    HINTS
+        "$ENV{VULKAN_SDK}/bin"
+        "$ENV{VULKAN_SDK}/Bin"
+        "${Vulkan_INCLUDE_DIR}/../bin"
+        "${Vulkan_INCLUDE_DIR}/../Bin"
+    DOC "Slang shader compiler"
+)
+
+if(NOT SLANGC_EXECUTABLE)
+    message(FATAL_ERROR
+        "slangc was not found. Install Slang or use a Vulkan SDK that includes it, "
+        "then add its bin directory to PATH or set SLANGC_EXECUTABLE."
+    )
+endif()
+
+function(add_slang_shader_target TARGET)
+    cmake_parse_arguments(
+        SHADER
+        ""
+        "OUTPUT"
+        "SOURCES;ENTRY_POINTS"
+        ${ARGN}
+    )
+
+    if(NOT SHADER_SOURCES)
+        message(FATAL_ERROR "${TARGET}: no Slang shader sources were provided")
+    endif()
+
+    if(NOT SHADER_ENTRY_POINTS)
+        set(SHADER_ENTRY_POINTS vertMain fragMain)
+    endif()
+
+    if(NOT SHADER_OUTPUT)
+        set(SHADER_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shaders/${TARGET}.spv")
+    elseif(NOT IS_ABSOLUTE "${SHADER_OUTPUT}")
+        set(SHADER_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${SHADER_OUTPUT}")
+    endif()
+
+    get_filename_component(SHADER_OUTPUT_DIR "${SHADER_OUTPUT}" DIRECTORY)
+
+    set(SHADER_ENTRY_POINT_ARGUMENTS)
+    foreach(ENTRY_POINT IN LISTS SHADER_ENTRY_POINTS)
+        list(APPEND SHADER_ENTRY_POINT_ARGUMENTS -entry "${ENTRY_POINT}")
+    endforeach()
+
+    add_custom_command(
+        OUTPUT "${SHADER_OUTPUT}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADER_OUTPUT_DIR}"
+        COMMAND "${SLANGC_EXECUTABLE}"
+                ${SHADER_SOURCES}
+                -target spirv
+                -profile spirv_1_4
+                -emit-spirv-directly
+                -fvk-use-entrypoint-name
+                ${SHADER_ENTRY_POINT_ARGUMENTS}
+                -o "${SHADER_OUTPUT}"
+        DEPENDS ${SHADER_SOURCES}
+        COMMENT "Compiling Slang shaders for ${TARGET}"
+        COMMAND_EXPAND_LISTS
+        VERBATIM
+    )
+
+    add_custom_target("${TARGET}" DEPENDS "${SHADER_OUTPUT}")
+endfunction()
+
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build GLFW examples" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "Build GLFW tests" FORCE)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "Build GLFW documentation" FORCE)
@@ -81,6 +148,18 @@ add_executable(my_vulkan_app
     Application.cpp
     Application.hpp
 )
+
+set(SHADER_SLANG_SOURCES
+    "${PROJECT_SOURCE_DIR}/shaders/src/base_shader.slang"
+)
+
+add_slang_shader_target(compile_slang_shaders
+    SOURCES ${SHADER_SLANG_SOURCES}
+    ENTRY_POINTS vertMain fragMain
+    OUTPUT "${PROJECT_SOURCE_DIR}/shaders/compiled/slang.spv"
+)
+
+add_dependencies(my_vulkan_app compile_slang_shaders)
 
 target_compile_options(my_vulkan_app PRIVATE
     -Wall

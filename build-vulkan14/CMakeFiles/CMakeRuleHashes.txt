@@ -1,2 +1,6 @@
 # Hashes of file build rules.
+e9d9cbe3b1b90ef873840317e638931b ../shaders/compiled/slang.spv
+77d3fb978cb1f03fb5f2cbd18b2f6636 ../shaders/slang.spv
+d9af6d65fb46fdda5533f51d9409e7ee CMakeFiles/compile_slang_shaders
 227ce4cac08db8c47a0e45dc27664d61 external/glfw/src/CMakeFiles/update_mappings
+7a8994ded84d728b7811d7016101a8b1 shaders/slang.spv

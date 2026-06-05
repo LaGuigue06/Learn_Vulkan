@@ -130,6 +130,19 @@ my_vulkan_app/fast:
 .PHONY : my_vulkan_app/fast
 
 #=============================================================================
+# Target rules for targets named compile_slang_shaders
+
+# Build rule for target.
+compile_slang_shaders: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 compile_slang_shaders
+.PHONY : compile_slang_shaders
+
+# fast build rule for target.
+compile_slang_shaders/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/compile_slang_shaders.dir/build.make CMakeFiles/compile_slang_shaders.dir/build
+.PHONY : compile_slang_shaders/fast
+
+#=============================================================================
 # Target rules for targets named glfw
 
 # Build rule for target.
@@ -237,6 +250,7 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... compile_slang_shaders"
 	@echo "... update_mappings"
 	@echo "... fmt"
 	@echo "... fmt-c"

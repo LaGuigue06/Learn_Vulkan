@@ -21,6 +21,7 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
+#include <fstream>
 
 const std::vector<char const *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -41,6 +42,7 @@ class Application {
         vk::raii::DebugUtilsMessengerEXT    _debugMessenger = nullptr;
         vk::raii::PhysicalDevice            _physicalDevice = nullptr;
         vk::raii::Device                    _logicalDevice = nullptr;
+        uint32_t                            _queueIndex     = ~0;
         vk::raii::Queue                     _graphicsQueue = nullptr;
         vk::raii::SurfaceKHR                _surface = nullptr;
         vk::raii::SwapchainKHR              _swapChain = nullptr;
@@ -48,7 +50,12 @@ class Application {
         vk::SurfaceFormatKHR                _swapChainSurfaceFormat;
         vk::Extent2D                        _swapChainExtent;
         std::vector<vk::raii::ImageView>    _swapChainImageViews;
+        vk::raii::PipelineLayout            _pipelineLayout = nullptr;
+        vk::raii::Pipeline                  _graphicsPipeline = nullptr;
+        vk::raii::CommandPool               _commandPool = nullptr;
+        vk::raii::CommandBuffer             _commandBuffer = nullptr;
 
+        // All the extension needed
         std::vector<const char*>            _requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
         void    initWindow();
@@ -58,17 +65,25 @@ class Application {
         void    pickPhysicalDevice();
         void    createLogicalDevice();
         void    createSwapChain();
+        void    createImageViews();
+        void    createGraphicsPipeline();
+        void    createCommandPool();
+        void    createCommandBuffer();
         void    initVulkan();
         void    mainLoop();
         void    cleanup();
 
         std::vector<const char*>    getRequiredInstanceExtensions();
 
-        // Swap chain
+        // Swap chain helper
         vk::SurfaceFormatKHR    chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& availableFormats);
         uint32_t                chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &surfaceCapabilities);
         vk::PresentModeKHR      chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const &availablePresentModes);
         vk::Extent2D            chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities);
+
+        // shader help
+        std::vector<char>                       readFile(const std::string& filename);
+        [[nodiscard]] vk::raii::ShaderModule    createShaderModule(const std::vector<char>& code) const;
 
         // Not used yet
         bool                        isDeviceSuitable( vk::raii::PhysicalDevice const& physicalDevice);
