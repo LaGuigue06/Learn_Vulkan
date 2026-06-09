@@ -20,11 +20,10 @@ void    Application::initWindow() {
     this->_window = glfwCreateWindow(WIDTH, HEIGHT, "vulkan", nullptr, nullptr);
 }
 
-/*
+/* 
 * Creation of vulkan instance.
-* The instance is a connection between your application and the vulkan library
+* The instance is a connection between your application and the vulkan library.
 */
-
 void    Application::createInstance() {
     // Information about the application
     constexpr vk::ApplicationInfo   appInfo{
@@ -54,7 +53,7 @@ void    Application::createInstance() {
 		throw std::runtime_error("Required layer not supported: " + std::string(*unsupportedLayerIt));
 	}
 
-    // Get the required extension
+    // Get the required extension of glfw
     auto    requiredExtensions = this->getRequiredInstanceExtensions();
 
     // Check if the required extensions are supported by the vulkan implementation
@@ -174,7 +173,7 @@ void    Application::pickPhysicalDevice() {
     std::cout << "GPU chosen: " << this->_physicalDevice.getProperties().deviceName << std::endl;
 }
 
-/*
+/**
 * Select GPU and create a queue for it
 */
 void    Application::createLogicalDevice() {
@@ -201,10 +200,10 @@ void    Application::createLogicalDevice() {
                        vk::PhysicalDeviceVulkan13Features,
                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
                        vk::PhysicalDeviceVulkan11Features> featureChain = {
-	    {},                                   // vk::PhysicalDeviceFeatures2
-	    {.dynamicRendering = true},           // vk::PhysicalDeviceVulkan13Features
-	    {.extendedDynamicState = true},       // vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
-        {.shaderDrawParameters = true}        // vk::PhysicalDeviceVulkan11Features
+	    {},                                                             // vk::PhysicalDeviceFeatures2
+	    {.synchronization2 = true, .dynamicRendering = true},           // vk::PhysicalDeviceVulkan13Features
+	    {.extendedDynamicState = true},                                 // vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+        {.shaderDrawParameters = true}                                  // vk::PhysicalDeviceVulkan11Features
 	};
 
 	// create a Device
@@ -267,7 +266,7 @@ void    Application::createImageViews()
 
 void    Application::createGraphicsPipeline()
 {
-    vk::raii::ShaderModule shaderModule = createShaderModule(readFile("shaders/slang.spv"));
+    vk::raii::ShaderModule shaderModule = createShaderModule(readFile("../shaders/compiled/slang.spv"));
 
     // Shader step usage
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{
@@ -286,7 +285,12 @@ void    Application::createGraphicsPipeline()
     vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
     // Describe the format of the vertex data that will be passed to the vertex shader  
-    vk::PipelineVertexInputStateCreateInfo  vertexInputInfo;
+    auto                                    bindingDescriptor = Vertex::getBindingDescription();
+    auto                                    attributeDescriptor = Vertex::getAttributeDescriptor();
+    vk::PipelineVertexInputStateCreateInfo  vertexInputInfo{.vertexBindingDescriptionCount      = 1,
+                                                            .pVertexBindingDescriptions         = &bindingDescriptor,
+                                                            .vertexAttributeDescriptionCount    = static_cast<uint32_t>(attributeDescriptor.size()),
+                                                            .pVertexAttributeDescriptions       = attributeDescriptor.data()};
     
     // Describe what kind of geometry will be drawn from the vertices and if primitive should be enable
     vk::PipelineInputAssemblyStateCreateInfo    inputAssembly{.topology = vk::PrimitiveTopology::eTriangleList};
@@ -359,11 +363,45 @@ void    Application::createCommandPool()
     this->_commandPool = vk::raii::CommandPool(this->_logicalDevice, poolInfo);
 }
 
+void    Application::createVertexBuffer()
+{
+    vk::BufferCreateInfo    bufferInfo{ .size           = sizeof(vertices[0]) * vertices.size(),
+                                        .usage          = vk::BufferUsageFlagBits::eVertexBuffer,
+                                        .sharingMode    = vk::SharingMode::eExclusive};
+
+    this->_vertexBuffer = vk::raii::Buffer(this->_logicalDevice, bufferInfo);
+
+    vk::MemoryRequirements  memRequirements = this->_vertexBuffer.getMemoryRequirements();
+    vk::MemoryAllocateInfo  memAllocateInfo{
+        .allocationSize     = memRequirements.size,
+        .memoryTypeIndex    = this->findMemoryType(memRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)
+    };
+    this->_vertexBuffer
+}
+
 void    Application::createCommandBuffer()
 {
-    vk::CommandBufferAllocateInfo allocInfo{ .commandPool = this->_commandPool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = 1 };
+    this->_commandBuffers.clear();
 
-    this->_commandBuffer = std::move(vk::raii::CommandBuffers(this->_logicalDevice, allocInfo).front());
+    vk::CommandBufferAllocateInfo allocInfo{ .commandPool = this->_commandPool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = MAX_FRAMES_IN_FLIGHT };
+
+    this->_commandBuffers = vk::raii::CommandBuffers(this->_logicalDevice, allocInfo);
+}
+
+void    Application::createSyncObjects()
+{
+    assert(this->_presentCompleteSemaphore.empty() && this->_renderFinishedSemaphore.empty() && this->_inFlightFences.empty());
+
+    for (std::size_t i {0}; i < this->_swapChainImages.size(); ++i)
+    {
+        this->_renderFinishedSemaphore.emplace_back(this->_logicalDevice, vk::SemaphoreCreateInfo());
+    }
+
+    for (std::size_t i {0}; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    {
+        this->_presentCompleteSemaphore.emplace_back(this->_logicalDevice, vk::SemaphoreCreateInfo());
+        this->_inFlightFences.emplace_back(this->_logicalDevice, vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled});
+    }
 }
 
 void    Application::initVulkan() {
@@ -376,19 +414,106 @@ void    Application::initVulkan() {
     this->createImageViews();
     this->createGraphicsPipeline();
     this->createCommandPool();
+    this->createVertexBuffer();
+    this->createCommandBuffer();
+    this->createSyncObjects();
 }
 
 void    Application::mainLoop() {
     while(!glfwWindowShouldClose(this->_window)) {
         glfwPollEvents();
+        this->drawFrame();
     }
+    this->_logicalDevice.waitIdle();
 }
 
 void    Application::cleanup() {
+    this->cleanupwapChain();
+
+    this->_inFlightFences.clear();
+    this->_renderFinishedSemaphore.clear();
+    this->_presentCompleteSemaphore.clear();
+    this->_commandBuffers.clear();
+    this->_vertexBuffer = nullptr;
+    this->_commandPool = nullptr;
+    this->_graphicsPipeline = nullptr;
+    this->_pipelineLayout = nullptr;
+    this->_swapChainImageViews.clear();
+    this->_swapChain = nullptr;
+    this->_logicalDevice = nullptr;
+    this->_surface = nullptr;
+    this->_debugMessenger = nullptr;
+    this->_instance = nullptr;
+
     glfwDestroyWindow(this->_window);
     glfwTerminate();
 }
 
+void    Application::drawFrame()
+{   
+    auto fenceResult = this->_logicalDevice.waitForFences(*this->_inFlightFences[this->_frameIndex], VK_TRUE, UINT64_MAX);
+    if (fenceResult != vk::Result::eSuccess)
+    {
+        throw std::runtime_error("Failed to wait for fence!");
+    }
+
+    this->_logicalDevice.resetFences(*this->_inFlightFences[this->_frameIndex]);
+
+    auto [result, imageIndex] = this->_swapChain.acquireNextImage(UINT64_MAX, *this->_presentCompleteSemaphore[this->_frameIndex], nullptr);
+
+    this->_commandBuffers[this->_frameIndex].reset();
+    this->recordCommandBuffer(imageIndex);
+
+    vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+		const vk::SubmitInfo   submitInfo{.waitSemaphoreCount   = 1,
+		                                  .pWaitSemaphores      = &*this->_presentCompleteSemaphore[this->_frameIndex],
+		                                  .pWaitDstStageMask    = &waitDestinationStageMask,
+		                                  .commandBufferCount   = 1,
+		                                  .pCommandBuffers      = &*this->_commandBuffers[this->_frameIndex],
+		                                  .signalSemaphoreCount = 1,
+		                                  .pSignalSemaphores    = &*this->_renderFinishedSemaphore[imageIndex]};
+
+	this->_graphicsQueue.submit(submitInfo, *this->_inFlightFences[this->_frameIndex]);
+
+	const vk::PresentInfoKHR presentInfoKHR{.waitSemaphoreCount = 1, .pWaitSemaphores = &*this->_renderFinishedSemaphore[imageIndex], .swapchainCount = 1, .pSwapchains = &*this->_swapChain, .pImageIndices = &imageIndex};
+	result = this->_graphicsQueue.presentKHR(presentInfoKHR);
+	switch (result)
+	{
+		case vk::Result::eSuccess:
+			break;
+		case vk::Result::eSuboptimalKHR:
+			std::cout << "vk::Queue::presentKHR returned vk::Result::eSuboptimalKHR !\n";
+			break;
+		default:
+			break;        // an unexpected result is returned!
+	}
+
+    this->_frameIndex = (this->_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void    Application::cleanupwapChain()
+{
+    this->_swapChainImageViews.clear();
+    this->_swapChain = nullptr;
+}
+
+void    Application::recreateSwapChain()
+{
+    int width = 0, height = 0;
+	glfwGetFramebufferSize(this->_window, &width, &height);
+	while (width == 0 || height == 0)
+	{
+		glfwGetFramebufferSize(this->_window, &width, &height);
+		glfwWaitEvents();
+	}
+
+    this->_logicalDevice.waitIdle();
+
+    this->cleanupwapChain();
+
+    this->createSwapChain();
+    this->createImageViews();
+}
 
 std::vector<const char*>    Application::getRequiredInstanceExtensions() {
     uint32_t    glfwExtensionCount = 0;
@@ -528,9 +653,13 @@ std::vector<char>   Application::readFile(const std::string& filename)
         throw std::runtime_error("Failed to open file");
     }
 
+    // reseve enough space for the buffer
     std::vector<char>   buffer(file.tellg());
 
+    // place the pointer to the begining of the file
     file.seekg(0, std::ios::beg);
+
+    // give the data of the file inside the buffer
     file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
 
     file.close();
@@ -546,4 +675,112 @@ std::vector<char>   Application::readFile(const std::string& filename)
     vk::raii::ShaderModule      shaderModule{this->_logicalDevice, createInfo};
 
     return (shaderModule);
+}
+
+// for the transition of the image layout before and after the rendering
+void    Application::transitionImageLayout(
+            uint32_t                imageIndex,
+            vk::ImageLayout         old_layout,
+            vk::ImageLayout         new_layout,
+            vk::AccessFlags2        src_access_mask,
+            vk::AccessFlags2        dst_access_mask,
+            vk::PipelineStageFlags2 src_stage_mask,
+            vk::PipelineStageFlags2 dst_stage_mask
+        )
+{
+    vk::ImageMemoryBarrier2 barrier = {
+		.srcStageMask        = src_stage_mask,
+		.srcAccessMask       = src_access_mask,
+		.dstStageMask        = dst_stage_mask,
+		.dstAccessMask       = dst_access_mask,
+		.oldLayout           = old_layout,
+		.newLayout           = new_layout,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image               = this->_swapChainImages[imageIndex],
+		.subresourceRange    = {
+		       .aspectMask     = vk::ImageAspectFlagBits::eColor,
+		       .baseMipLevel   = 0,
+		       .levelCount     = 1,
+		       .baseArrayLayer = 0,
+		       .layerCount     = 1}};
+        
+	vk::DependencyInfo dependencyInfo = {
+		.dependencyFlags         = {},
+		.imageMemoryBarrierCount = 1,
+		.pImageMemoryBarriers    = &barrier};
+
+    this->_commandBuffers[this->_frameIndex].pipelineBarrier2(dependencyInfo);
+}
+
+void    Application::recordCommandBuffer(uint32_t imageIndex)
+{
+    auto &commandBuffer = this->_commandBuffers[this->_frameIndex];
+    commandBuffer.begin({});
+
+    // Transition the image layout for rendering
+    this->transitionImageLayout(
+        imageIndex,
+        vk::ImageLayout::eUndefined,
+        vk::ImageLayout::eColorAttachmentOptimal,
+        {},
+        vk::AccessFlagBits2::eColorAttachmentWrite,
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput
+    );
+
+    // Set up the color attachment
+    vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    vk::RenderingAttachmentInfo attachmentInfo = {
+		    .imageView   = this->_swapChainImageViews[imageIndex],
+		    .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+		    .loadOp      = vk::AttachmentLoadOp::eClear,
+		    .storeOp     = vk::AttachmentStoreOp::eStore,
+		    .clearValue  = clearColor};
+
+    // Set up the rendering info
+    vk::RenderingInfo renderingInfo = {
+		    .renderArea           = {.offset = {0, 0}, .extent = this->_swapChainExtent},
+		    .layerCount           = 1,
+		    .colorAttachmentCount = 1,
+		    .pColorAttachments    = &attachmentInfo};
+
+    // Begin rendering
+    commandBuffer.beginRendering(renderingInfo);
+
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *this->_graphicsPipeline);
+    commandBuffer.setViewport(0, vk::Viewport{0.0f, 0.0f, static_cast<float>(this->_swapChainExtent.width), static_cast<float>(this->_swapChainExtent.height), 0.0f, 1.0f});
+    commandBuffer.setScissor(0, vk::Rect2D{vk::Offset2D{0, 0}, this->_swapChainExtent});
+    commandBuffer.draw(3, 1, 0, 0);
+
+    // End rendering
+    commandBuffer.endRendering();
+
+    // Transition the image layout for presentation
+    this->transitionImageLayout(
+        imageIndex,
+        vk::ImageLayout::eColorAttachmentOptimal,
+        vk::ImageLayout::ePresentSrcKHR,
+        vk::AccessFlagBits2::eColorAttachmentWrite,
+        {},
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        vk::PipelineStageFlagBits2::eBottomOfPipe
+    );
+
+    commandBuffer.end();
+}
+
+uint32_t    Application::findMemoryType(uint32_t typeFiler, vk::MemoryPropertyFlags properties)
+{
+    vk::PhysicalDeviceMemoryProperties  memProperties = this->_physicalDevice.getMemoryProperties();
+
+    for (uint32_t i {0}; i < memProperties.memoryTypeCount; ++i)
+    {
+        if ((typeFiler & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+        {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
 }

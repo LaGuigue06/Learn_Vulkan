@@ -143,6 +143,16 @@ if(EXISTS "${FMT_SOURCE_DIR}/CMakeLists.txt")
     add_subdirectory("${FMT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}/external/fmt")
 endif()
 
+set(GLM_SOURCE_DIR "${PROJECT_SOURCE_DIR}/external/glm")
+if(NOT EXISTS "${GLM_SOURCE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "GLM was not found at ${GLM_SOURCE_DIR}")
+endif()
+
+set(GLM_BUILD_LIBRARY OFF CACHE BOOL "Build GLM library" FORCE)
+set(GLM_BUILD_TESTS OFF CACHE BOOL "Build GLM tests" FORCE)
+set(GLM_BUILD_INSTALL OFF CACHE BOOL "Generate GLM install target" FORCE)
+add_subdirectory("${GLM_SOURCE_DIR}" "${PROJECT_BINARY_DIR}/external/glm")
+
 add_executable(my_vulkan_app
     main.cpp
     Application.cpp
@@ -172,11 +182,13 @@ target_include_directories(my_vulkan_app PRIVATE
 )
 
 target_compile_definitions(my_vulkan_app PRIVATE
+    VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
     VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
 )
 
 target_link_libraries(my_vulkan_app PRIVATE
     Vulkan::Vulkan
     glfw
+    glm::glm
     $<$<TARGET_EXISTS:fmt::fmt>:fmt::fmt>
 )
