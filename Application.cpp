@@ -264,6 +264,23 @@ void    Application::createImageViews()
     }
 }
 
+void    Application::createDescriptorSetLayout()
+{
+    vk::DescriptorSetLayoutBinding  uboLayoutBinding{
+        .binding            = 0,
+        .descriptorType     = vk::DescriptorType::eUniformBuffer,
+        .descriptorCount    = 1,
+        .stageFlags         = vk::ShaderStageFlagBits::eVertex 
+    };
+
+    vk::DescriptorSetLayoutCreateInfo   layoutInfo{
+        .bindingCount   = 1,
+        .pBindings      = &uboLayoutBinding
+    };
+
+    this->_descriptorSetLayout = vk::raii::DescriptorSetLayout(this->_logicalDevice, layoutInfo);
+}
+
 void    Application::createGraphicsPipeline()
 {
     vk::raii::ShaderModule shaderModule = createShaderModule(readFile("../shaders/compiled/slang.spv"));
@@ -295,7 +312,7 @@ void    Application::createGraphicsPipeline()
     // Describe what kind of geometry will be drawn from the vertices and if primitive should be enable
     vk::PipelineInputAssemblyStateCreateInfo    inputAssembly{.topology = vk::PrimitiveTopology::eTriangleList};
 
-    /*
+    /* 
     * The viewport describe the region of the framebuffer that the output will be rendered to almost always (0, 0) to (width, heigh)
     * The scissor define which map pixel have the right to be shown
     */ 
@@ -335,7 +352,12 @@ void    Application::createGraphicsPipeline()
         .pDynamicStates = dynamicStates.data()
     };
 
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{.setLayoutCount = 0, .pushConstantRangeCount = 0};
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+        .setLayoutCount         = 0,
+        .pSetLayouts            = &*this->_descriptorSetLayout,
+        .pushConstantRangeCount = 0
+    };
+
 	this->_pipelineLayout = vk::raii::PipelineLayout(this->_logicalDevice, pipelineLayoutInfo);
 
     vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfoChain = {
@@ -365,18 +387,50 @@ void    Application::createCommandPool()
 
 void    Application::createVertexBuffer()
 {
-    vk::BufferCreateInfo    bufferInfo{ .size           = sizeof(vertices[0]) * vertices.size(),
-                                        .usage          = vk::BufferUsageFlagBits::eVertexBuffer,
-                                        .sharingMode    = vk::SharingMode::eExclusive};
+    vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-    this->_vertexBuffer = vk::raii::Buffer(this->_logicalDevice, bufferInfo);
+	auto [stagingBuffer, stagingBufferMemory] = createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
-    vk::MemoryRequirements  memRequirements = this->_vertexBuffer.getMemoryRequirements();
-    vk::MemoryAllocateInfo  memAllocateInfo{
-        .allocationSize     = memRequirements.size,
-        .memoryTypeIndex    = this->findMemoryType(memRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)
-    };
-    this->_vertexBuffer
+	void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+
+	memcpy(dataStaging, vertices.data(), bufferSize);
+
+	stagingBufferMemory.unmapMemory();
+
+	std::tie(this->_vertexBuffer, this->_vertexBufferMemory) = createBuffer(bufferSize, vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst, vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+	copyBuffer(stagingBuffer, this->_vertexBuffer, bufferSize);
+}
+
+void    Application::createIndexBuffer()
+{
+    vk::DeviceSize  bufferSize = sizeof(indices[0]) * indices.size();
+
+    auto [stagingBuffer, stagingBufferMemory] = this->createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+    
+    void    *data = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(data, indices.data(), static_cast<std::size_t>(bufferSize));
+    stagingBufferMemory.unmapMemory();
+
+    std::tie(this->_indexBuffer, this->_indexBufferMemory) = this->createBuffer(bufferSize, vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst, vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+    this->copyBuffer(stagingBuffer, this->_indexBuffer, bufferSize);
+}
+
+void    Application::createUniformBuffers()
+{
+    for (std::size_t i {0}; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    {
+        vk::DeviceSize  bufferSize = sizeof(UniformBufferObject);
+
+        auto [buffer, bufferMem] = this->createBuffer(
+            bufferSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+        );
+
+        this->_uniformBuffers.emplace_back(std::move(buffer));
+        this->_uniformBuffersMemory.emplace_back(std::move(bufferMem));
+        this->_uniformBuffersMapped.emplace_back(this->_uniformBuffersMemory.back().mapMemory(0, bufferSize));
+    }
 }
 
 void    Application::createCommandBuffer()
@@ -412,9 +466,12 @@ void    Application::initVulkan() {
     this->createLogicalDevice();
     this->createSwapChain();
     this->createImageViews();
+    this->createDescriptorSetLayout();
     this->createGraphicsPipeline();
     this->createCommandPool();
     this->createVertexBuffer();
+    this->createIndexBuffer();
+    this->createUniformBuffers();
     this->createCommandBuffer();
     this->createSyncObjects();
 }
@@ -435,7 +492,12 @@ void    Application::cleanup() {
     this->_presentCompleteSemaphore.clear();
     this->_commandBuffers.clear();
     this->_vertexBuffer = nullptr;
+    this->_vertexBufferMemory = nullptr;
+    this->_indexBuffer = nullptr;
+    this->_indexBufferMemory = nullptr;
     this->_commandPool = nullptr;
+    this->_descriptorSetLayout = nullptr;
+    this->_pipelineLayout      = nullptr;
     this->_graphicsPipeline = nullptr;
     this->_pipelineLayout = nullptr;
     this->_swapChainImageViews.clear();
@@ -489,6 +551,11 @@ void    Application::drawFrame()
 	}
 
     this->_frameIndex = (this->_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void    Application::updateUniformBuffer(uint32_t currentImage)
+{
+    
 }
 
 void    Application::cleanupwapChain()
@@ -749,9 +816,11 @@ void    Application::recordCommandBuffer(uint32_t imageIndex)
     commandBuffer.beginRendering(renderingInfo);
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *this->_graphicsPipeline);
+    commandBuffer.bindVertexBuffers(0, *this->_vertexBuffer, {0});
+    commandBuffer.bindIndexBuffer(*this->_indexBuffer, 0, vk::IndexType::eUint16);
     commandBuffer.setViewport(0, vk::Viewport{0.0f, 0.0f, static_cast<float>(this->_swapChainExtent.width), static_cast<float>(this->_swapChainExtent.height), 0.0f, 1.0f});
     commandBuffer.setScissor(0, vk::Rect2D{vk::Offset2D{0, 0}, this->_swapChainExtent});
-    commandBuffer.draw(3, 1, 0, 0);
+    commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     // End rendering
     commandBuffer.endRendering();
@@ -768,6 +837,28 @@ void    Application::recordCommandBuffer(uint32_t imageIndex)
     );
 
     commandBuffer.end();
+}
+
+std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Application::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties)
+{
+    vk::BufferCreateInfo   bufferInfo{.size = size, .usage = usage, .sharingMode = vk::SharingMode::eExclusive};
+    vk::raii::Buffer       buffer          = vk::raii::Buffer(this->_logicalDevice, bufferInfo);
+    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
+    vk::MemoryAllocateInfo allocInfo{.allocationSize = memRequirements.size, .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)};
+    vk::raii::DeviceMemory bufferMemory = vk::raii::DeviceMemory(this->_logicalDevice, allocInfo);
+    buffer.bindMemory(*bufferMemory, 0);
+    return {std::move(buffer), std::move(bufferMemory)};
+}
+
+void    Application::copyBuffer(vk::raii::Buffer & srcBuffer, vk::raii::Buffer & dstBuffer, vk::DeviceSize size)
+{
+    vk::CommandBufferAllocateInfo allocInfo{ .commandPool = this->_commandPool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = 1 };
+    vk::raii::CommandBuffer commandCopyBuffer = std::move(this->_logicalDevice.allocateCommandBuffers(allocInfo).front());
+    commandCopyBuffer.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+    commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy{0, 0, size});
+    commandCopyBuffer.end();
+    this->_graphicsQueue.submit(vk::SubmitInfo{.commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer}, nullptr);
+    this->_graphicsQueue.waitIdle();
 }
 
 uint32_t    Application::findMemoryType(uint32_t typeFiler, vk::MemoryPropertyFlags properties)

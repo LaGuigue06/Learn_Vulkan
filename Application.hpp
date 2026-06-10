@@ -44,9 +44,9 @@ struct Vertex
 
     static vk::VertexInputBindingDescription    getBindingDescription()
     {
-        return {.binding {0},
-                .stride {sizeof(Vertex)},
-                .inputRate {vk::VertexInputRate::eVertex}};
+        return {.binding = 0,
+                .stride = sizeof(Vertex),
+                .inputRate = vk::VertexInputRate::eVertex};
     }
 
     static std::array<vk::VertexInputAttributeDescription, 2>   getAttributeDescriptor()
@@ -69,9 +69,21 @@ struct Vertex
 };
 
 const std::vector<Vertex> vertices = {
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+};
+
+const std::vector<uint16_t> indices = {
+    0, 1, 2, 2, 3, 0
+};
+
+struct UniformBufferObject
+{
+	glm::mat4 model;
+	glm::mat4 view;
+	glm::mat4 proj;
 };
 
 class Application {
@@ -90,14 +102,22 @@ class Application {
         vk::SurfaceFormatKHR                    _swapChainSurfaceFormat;
         vk::Extent2D                            _swapChainExtent;
         std::vector<vk::raii::ImageView>        _swapChainImageViews;
+        vk::raii::DescriptorSetLayout           _descriptorSetLayout = nullptr;
+        vk::raii::PipelineLayout                _pipelineLayout      = nullptr;
         vk::raii::PipelineLayout                _pipelineLayout = nullptr;
         vk::raii::Pipeline                      _graphicsPipeline = nullptr;
         vk::raii::CommandPool                   _commandPool = nullptr;
         vk::raii::Buffer                        _vertexBuffer = nullptr;
+        vk::raii::DeviceMemory                  _vertexBufferMemory = nullptr;
+        vk::raii::Buffer                        _indexBuffer = nullptr;
+        vk::raii::DeviceMemory                  _indexBufferMemory = nullptr;
         std::vector<vk::raii::CommandBuffer>    _commandBuffers;
         std::vector<vk::raii::Semaphore>        _presentCompleteSemaphore;
         std::vector<vk::raii::Semaphore>        _renderFinishedSemaphore;
         std::vector<vk::raii::Fence>            _inFlightFences;
+        std::vector<vk::raii::Buffer>           _uniformBuffers;
+        std::vector<vk::raii::DeviceMemory>     _uniformBuffersMemory;
+        std::vector<void *>                     _uniformBuffersMapped;
 
         uint32_t                                _frameIndex {0};
 
@@ -112,9 +132,12 @@ class Application {
         void    createLogicalDevice();
         void    createSwapChain();
         void    createImageViews();
+        void    createDescriptorSetLayout();
         void    createGraphicsPipeline();
         void    createCommandPool();
         void    createVertexBuffer();
+        void    createIndexBuffer();
+        void    createUniformBuffers();
         void    createCommandBuffer();
         void    createSyncObjects();
         void    initVulkan();
@@ -122,6 +145,7 @@ class Application {
         void    cleanup();
 
         void    drawFrame();
+        void    updateUniformBuffer(uint32_t currentImage);
         void    cleanupwapChain();
         void    recreateSwapChain();
 
@@ -150,7 +174,9 @@ class Application {
         void    recordCommandBuffer(uint32_t imageIndex);
 
         // Memory
-        uint32_t    findMemoryType(uint32_t typeFiler, vk::MemoryPropertyFlags properties);
+        std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties);
+        void                                                copyBuffer(vk::raii::Buffer & srcBuffer, vk::raii::Buffer & dstBuffer, vk::DeviceSize size);
+        uint32_t                                            findMemoryType(uint32_t typeFiler, vk::MemoryPropertyFlags properties);
 
         // Not used yet
         bool                        isDeviceSuitable( vk::raii::PhysicalDevice const& physicalDevice);
